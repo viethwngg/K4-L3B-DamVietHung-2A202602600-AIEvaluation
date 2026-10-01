@@ -30,11 +30,11 @@ critical.
 
 | Metric | Acceptable Low Score Scenario | Critical Low Score Scenario | Action Required |
 |---|---|---|---|
-| Faithfulness | | | |
-| Answer Relevance | | | |
-| Context Recall | | | |
-| Context Precision | | | |
-| Completeness | | | |
+| Faithfulness | Safe refusal/clarification uses wording outside the retrieved text but makes no factual policy claim. | A confident product, refund, warranty, privacy or legal claim is unsupported or contradicts the corpus. | Inspect claims against evidence; block critical unsupported claims, improve grounding prompt, and add a claim-level guardrail. |
+| Answer Relevance | The assistant briefly prioritizes an urgent safety step before answering the remaining intent. | The response answers another policy or ignores the customer's requested decision/action. | Review intent detection and prompt routing; add intent-focused examples and semantic relevance review. |
+| Context Recall | The question is conversational or can be handled entirely by a fixed scope/safety rule. | Evidence controlling eligibility, dates, fees, exceptions or safety is absent from top-k. | Decompose the query, improve retrieval/chunking, and require critical evidence coverage before generation. |
+| Context Precision | All required evidence is retrieved early, with harmless noise only at lower ranks. | Noise occupies the first ranks and causes the generator to use the wrong policy or version. | Rerank, deduplicate and tune top-k; monitor rank-aware precision together with recall. |
+| Completeness | A clarification is necessary because the order date/status or another deciding fact is unavailable. | The answer omits a condition or exception that changes eligibility, price, safety or next steps. | Add a per-clause checklist, request missing facts explicitly, and test required concepts against the expected answer. |
 
 ### Exercise 1.2 — Bias trong LLM-as-a-Judge
 
@@ -46,15 +46,28 @@ Ba bias thường gặp:
 
 **Câu 1: Thiết kế experiment phát hiện position bias với ít nhất hai conditions.**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Dùng cùng một tập question và hai candidate answers A/B. Condition
+> 1 trình bày A trước B; Condition 2 đảo thành B trước A. Ẩn tên model, giữ rubric
+> và temperature cố định, randomize thứ tự trên nhiều samples và chạy nhiều lượt.
+> Position bias được flag khi winner hoặc score gap thay đổi có hệ thống theo vị
+> trí thay vì theo nội dung. Có thể thêm condition 3 chấm từng answer độc lập để
+> làm baseline không có vị trí pairwise.
 
 **Câu 2: Làm thế nào giảm verbosity bias bằng rubric design?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Rubric phải chấm atomic claims, conditions, exceptions và
+> actionability thay vì số từ. Không cộng điểm cho explanation dài; redundancy
+> không bù được missing evidence và có thể bị trừ ở clarity. Dùng answer pairs có
+> cùng facts nhưng độ dài khác nhau để calibration, đồng thời yêu cầu judge dẫn
+> evidence cụ thể cho từng điểm.
 
 **Câu 3: Tại sao cần calibrate LLM judge với human labels?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Human labels tạo chuẩn domain-specific để đo judge agreement,
+> chọn threshold và phát hiện systematic bias. Không calibration, judge có thể
+> thưởng văn phong dài nhưng bỏ qua policy exception hoặc privacy failure. Một
+> human-labeled sample cho phép tính agreement, phân tích disagreement theo slice
+> (safety, policy version, adversarial) và điều chỉnh rubric trước khi tự động hóa.
 
 ### Exercise 1.3 — Evaluation trong CI/CD
 
@@ -62,13 +75,18 @@ Ba bias thường gặp:
 
 | Metric | Threshold | Lý do |
 |---|---:|---|
-| Faithfulness | | |
-| Answer Relevance | | |
-| Completeness | | |
+| Faithfulness | 0.80 | Unsupported OrbitTech policy claims can cause financial, privacy or safety harm; any critical hallucination blocks regardless of average. |
+| Answer Relevance | 0.60 | Below this level the response often misses intent; a slightly lower gate than faithfulness tolerates concise safe clarification. |
+| Completeness | 0.70 | Conditions, dates, fees and exceptions materially change customer outcomes, so substantial coverage is required. |
 
 **Câu 2: Khi nào dùng offline evaluation, online evaluation và human review?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Offline evaluation chạy trên golden dataset ở mọi thay đổi code,
+> prompt, model, retriever hoặc corpus và trước release. Online evaluation theo
+> dõi production telemetry như escalation, abandonment, latency và sampled
+> feedback sau deploy nhưng không gửi dữ liệu nhạy cảm vào evaluator. Human
+> review dùng để calibrate judge, xử lý disagreement, kiểm tra privacy/safety và
+> review các failure cluster hoặc policy-version case có rủi ro cao.
 
 ---
 
@@ -291,6 +309,9 @@ verbosity bias và self-preference bằng cách nào?
 Chỉ làm sau khi hoàn thành 3.1–3.3. Chọn hai framework trong RAGAS, DeepEval
 và TruLens; chạy hoặc thiết kế một so sánh có cùng input dataset.
 
+> **Trạng thái:** Không chọn bonus 3.4 trong submission này; không khai báo kết
+> quả framework khi chưa chạy experiment tương ứng.
+
 | Tiêu chí | Framework 1: ____ | Framework 2: ____ |
 |---|---|---|
 | Setup complexity | | |
@@ -318,20 +339,27 @@ thay đổi Context Recall hay không.
 
 | ID | Recall before | Recall after | Precision before | Precision after | Delta Precision |
 |---|---:|---:|---:|---:|---:|
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| **Avg** | | | | | |
+| E01 | 0.939 | 0.939 | 0.700 | 0.750 | +0.050 |
+| M05 | 0.826 | 0.826 | 0.806 | 1.000 | +0.194 |
+| M06 | 0.862 | 0.862 | 0.700 | 1.000 | +0.300 |
+| H01 | 0.795 | 0.795 | 0.888 | 1.000 | +0.113 |
+| A03 | 0.696 | 0.696 | 0.867 | 0.867 | +0.000 |
+| **Avg** | **0.824** | **0.824** | **0.792** | **0.923** | **+0.131** |
 
 **Tại sao Recall dự kiến không đổi?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Recall dùng union tokens của toàn bộ retrieved chunks. Reranker
+> chỉ sắp xếp lại đúng năm chunks đã có, không thêm hoặc xóa chunk, nên union và
+> Context Recall giữ nguyên. Experiment dùng question làm reranking query và
+> cùng expected answer để đo Context Precision trước/sau.
 
 **Khi nào reranking không đủ và cần sửa retriever/query/chunking?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Reranking không thể khôi phục evidence chưa được retrieve. Ví dụ
+> A01 thiếu scope paragraph và H04 thiếu paid-repair quote, nên cần intent
+> routing, query decomposition, hybrid semantic retrieval hoặc tăng/chỉnh top-k.
+> Cũng cần sửa chunking khi một rule và exception bị tách sai, và sửa query khi
+> synonym như “lawyer”/“legal representation” không có lexical overlap.
 
 ---
 
@@ -345,11 +373,11 @@ Hoàn thành `reflection.md` bằng kết quả thật từ Exercise 3.2.
 
 Hoàn thành kiểm tra cuối trong khoảng 11:50–12:00.
 
-- [ ] Tất cả required tests pass.
-- [ ] `golden_dataset.json` validate thành công.
-- [ ] Exercise 3.1 hoàn thành trong file JSON và bảng kết quả phía trên.
-- [ ] Exercise 3.2 có năm metrics, aggregate report và ba cases thấp nhất.
-- [ ] Exercise 3.3 có rubric 1–5 và bias controls.
-- [ ] `reflection.md` có ba failure analyses và regression strategy.
-- [ ] Đã copy `template.py` thành `solution/solution.py`.
-- [ ] Exercise 3.4 và 3.5 chỉ làm nếu chọn bonus.
+- [x] Tất cả required tests pass.
+- [x] `golden_dataset.json` validate thành công.
+- [x] Exercise 3.1 hoàn thành trong file JSON và bảng kết quả phía trên.
+- [x] Exercise 3.2 có năm metrics, aggregate report và ba cases thấp nhất.
+- [x] Exercise 3.3 có rubric 1–5 và bias controls.
+- [x] `reflection.md` có ba failure analyses và regression strategy.
+- [x] Đã copy `template.py` thành `solution/solution.py`.
+- [x] Exercise 3.4 không được chọn; Exercise 3.5 reranking bonus đã hoàn thành.
